@@ -48,15 +48,21 @@ export default function Webmail() {
     return () => subscription.unsubscribe();
   }, [router]);
 
-  // 2. ดึงข้อมูลอีเมลเฉพาะของคนที่ล็อกอิน
+  // 2. ดึงข้อมูลอีเมลทั้งหมด (ยกเลิกการกรองชั่วคราวเพื่อหาอีเมลที่หายไป)
   async function fetchEmails(userEmail) {
     const { data, error } = await supabase
       .from('emails')
       .select('*')
-      .or(`recipient.eq.${userEmail},sender.eq.${userEmail}`)
+      // 🛠️ คอมเมนต์บรรทัดนี้ไว้ เพื่อให้ดึงอีเมลทุกฉบับมาโชว์ (ไม่สนว่าใครล็อกอิน)
+      // .or(`recipient.ilike.%${userEmail}%,sender.ilike.%${userEmail}%`)
       .order('created_at', { ascending: false });
       
-    if (!error && data) setEmails(data);
+    if (error) {
+      console.error('ดึงข้อมูลอีเมลล้มเหลว:', error);
+      alert('ดึงข้อมูลไม่ได้: ' + error.message);
+    } else if (data) {
+      setEmails(data);
+    }
   }
 
   // 3. ฟังก์ชันออกจากระบบ
@@ -65,7 +71,7 @@ export default function Webmail() {
     router.push('/login');
   }
 
-  // 4. ฟังก์ชันส่งอีเมล (อัปเดตระบบดัก Error ให้ฉลาดขึ้น)
+  // 4. ฟังก์ชันส่งอีเมล
   async function handleSendEmail(e) {
     e.preventDefault();
     setSending(true);
@@ -93,9 +99,8 @@ export default function Webmail() {
         setBody('');
         setFiles([]);
         setIsComposing(false);
-        fetchEmails(session.user.email);
+        fetchEmails(session.user.email); // โหลดข้อมูลใหม่หลังจากส่งเสร็จ
       } else {
-        // อ่านข้อความที่เซิร์ฟเวอร์ตอบกลับมาก่อนเพื่อดักจับ Error
         const errorText = await res.text();
         try {
           const errObj = JSON.parse(errorText);
