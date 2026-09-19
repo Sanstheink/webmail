@@ -1,26 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
-import { 
-  Inbox, Send, Search, Reply, MailOpen, CheckCircle2 
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Inbox, Send, Search, Reply, MailOpen, CheckCircle2 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
-const INITIAL_EMAILS = [
-  {
-    id: 1,
-    sender: 'alex@partner.com',
-    senderName: 'Alex Mercer',
-    recipient: 'contact@yourdomain.com',
-    subject: 'Project OACD Q3 Roadmap & Review',
-    date: '10:45 AM',
-    unread: true,
-    html: `<div style="font-family: sans-serif; color: #333;"><p>Hi team,</p><p>Here is the update regarding the <strong>OACD roadmap</strong> review for Q3.</p></div>`,
-    text: 'Hi team, Here is the update regarding the OACD roadmap review for Q3.'
-  }
-];
+// ตั้งค่า Supabase Client สำหรับฝั่ง Frontend
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function WebmailDashboard() {
-  const [emails, setEmails] = useState(INITIAL_EMAILS);
+  const [emails, setEmails] = useState([]);
   const [selectedMail, setSelectedMail] = useState(null);
   const [currentTab, setCurrentTab] = useState('inbox');
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,14 +20,46 @@ export default function WebmailDashboard() {
   const [composeBody, setComposeBody] = useState('');
   const [sendingStatus, setSendingStatus] = useState(null);
 
+  // ดึงอีเมลจาก Database เมื่อเปิดหน้าเว็บ
+  useEffect(() => {
+    fetchEmails();
+  }, [currentTab]);
+
+  const fetchEmails = async () => {
+    // ถ้าอยู่หน้า Inbox ให้ดึงเมลที่ส่งหาเรา, ถ้าอยู่หน้า Sent ให้ดึงเมลที่เราส่งออก
+    const recipientFilter = currentTab === 'inbox' 
+      ? { column: 'recipient', value: 'contact@tidalis.site' } // อีเมลโดเมนคุณ
+      : { column: 'sender', value: 'contact@tidalis.site' };
+      
+    const { data, error } = await supabase
+      .from('emails')
+      .select('*')
+      .eq(recipientFilter.column, recipientFilter.value)
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setEmails(data);
+    }
+  };
+
   const filteredEmails = emails.filter(m => 
-    m.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.senderName.toLowerCase().includes(searchQuery.toLowerCase())
+    m.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    m.sender_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    m.sender?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleSelectMail = (mail) => {
+  const handleSelectMail = async (mail) => {
     setSelectedMail(mail);
-    setEmails(prev => prev.map(m => m.id === mail.id ? { ...m, unread: false } : m));
+    
+    // อัปเดตสถานะเป็น "อ่านแล้ว" ใน Database
+    if (mail.is_unread) {
+      await supabase
+        .from('emails')
+        .update({ is_unread: false })
+        .eq('id', mail.id);
+      
+      setEmails(prev => prev.map(m => m.id === mail.id ? { ...m, is_unread: false } : m));
+    }
     setCurrentTab('inbox');
   };
 
@@ -45,7 +67,7 @@ export default function WebmailDashboard() {
     setCurrentTab('compose');
     setComposeTo(mail.sender);
     setComposeSubject(`Re: ${mail.subject}`);
-    setComposeBody(`\n\n--- Original Message ---\nFrom: ${mail.sender}\n\n`);
+    setComposeBody(`\n\n--- Original Message ---\nFrom: ${mail.sender_name} <${mail.sender}>\nDate: ${new Date(mail.created_at).toLocaleString()}\n\n`);
   };
 
   const handleSendMail = async (e) => {
@@ -66,18 +88,19 @@ export default function WebmailDashboard() {
 
       if (!res.ok) throw new Error('Failed to send');
 
-      const newMail = {
-        id: Date.now(),
-        sender: 'contact@yourdomain.com',
-        senderName: 'Me',
-        recipient: composeTo,
-        subject: composeSubject,
-        date: 'Just now',
-        unread: false,
-        html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
-        text: composeBody
-      };
-      setEmails(prev => [newMail, ...prev]);
+      // บันทึกอีเมลที่ส่งออกลง Database ด้วย จะได้โชว์ในหน้า Sent
+      await supabase
+        .from('emails')
+        .insert({
+          sender: 'contact@tidalis.site',
+          sender_name: 'Me',
+          recipient: composeTo,
+          subject: composeSubject,
+          body_html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
+          body_text: composeBody,
+          is_unread: false,
+        });
+
       setSendingStatus('sent');
       setTimeout(() => {
         setSendingStatus(null);
@@ -85,12 +108,14 @@ export default function WebmailDashboard() {
         setComposeTo('');
         setComposeSubject('');
         setComposeBody('');
+        fetchEmails(); // รีเฟรชข้อมูลใหม่
       }, 1000);
     } catch {
       setSendingStatus('error');
     }
   };
 
+  // ... (ส่วน UI <div className="flex h-screen..."> ยังเหมือนเดิมทุกประการ ไม่ต้องแก้ครับ แต่เปลี่ยนการอ้างอิงตัวแปรนิดหน่อย เช่น mail.html เปลี่ยนเป็น mail.body_html) ...
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col p-4">
@@ -112,8 +137,8 @@ export default function WebmailDashboard() {
             <div className="flex items-center gap-3"><Inbox size={18} /> Inbox</div>
           </button>
           <button 
-            onClick={() => setCurrentTab('sent')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${currentTab === 'sent' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}
+            onClick={() => { setCurrentTab('sent'); setSelectedMail(null); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${currentTab === 'sent' && !selectedMail ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             <Send size={18} /> Sent
           </button>
@@ -138,16 +163,19 @@ export default function WebmailDashboard() {
             <div 
               key={mail.id}
               onClick={() => handleSelectMail(mail)}
-              className={`p-4 cursor-pointer transition hover:bg-slate-50 ${selectedMail?.id === mail.id ? 'bg-indigo-50/50 border-l-4 border-indigo-600' : ''}`}
+              className={`p-4 cursor-pointer transition hover:bg-slate-50 ${selectedMail?.id === mail.id ? 'bg-indigo-50/50 border-l-4 border-indigo-600' : ''} ${mail.is_unread ? 'bg-white' : 'bg-slate-50/50'}`}
             >
               <div className="flex justify-between items-center mb-1">
-                <span className="text-xs text-slate-500 truncate">{mail.senderName}</span>
-                <span className="text-[10px] text-slate-400">{mail.date}</span>
+                <span className={`text-xs truncate ${mail.is_unread ? 'font-bold text-slate-900' : 'text-slate-500'}`}>{mail.sender_name || mail.sender}</span>
+                <span className="text-[10px] text-slate-400">{new Date(mail.created_at).toLocaleDateString()}</span>
               </div>
-              <div className="text-sm text-slate-900 truncate mb-1">{mail.subject}</div>
-              <div className="text-xs text-slate-400 truncate">{mail.text}</div>
+              <div className={`text-sm truncate mb-1 ${mail.is_unread ? 'font-bold text-slate-900' : 'text-slate-700'}`}>{mail.subject}</div>
+              <div className="text-xs text-slate-400 truncate">{mail.body_text}</div>
             </div>
           ))}
+          {filteredEmails.length === 0 && (
+            <div className="p-4 text-center text-xs text-slate-400 mt-4">No emails found</div>
+          )}
         </div>
       </div>
 
@@ -159,7 +187,7 @@ export default function WebmailDashboard() {
               <input type="email" required placeholder="To" value={composeTo} onChange={e => setComposeTo(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" />
               <input type="text" required placeholder="Subject" value={composeSubject} onChange={e => setComposeSubject(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" />
               <textarea rows={8} required placeholder="Body" value={composeBody} onChange={e => setComposeBody(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm font-mono" />
-              <button type="submit" className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium">
+              <button type="submit" disabled={sendingStatus === 'sending'} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50">
                 {sendingStatus === 'sending' ? 'Sending...' : 'Send Message'}
               </button>
               {sendingStatus === 'sent' && <span className="ml-4 text-emerald-600 text-sm flex items-center gap-1 inline-flex"><CheckCircle2 size={16} /> Sent!</span>}
@@ -170,13 +198,13 @@ export default function WebmailDashboard() {
             <div className="flex items-center justify-between pb-6 border-b mb-6">
               <div>
                 <h1 className="text-xl font-bold text-slate-900 mb-2">{selectedMail.subject}</h1>
-                <span className="text-sm text-slate-500">{selectedMail.senderName} &lt;{selectedMail.sender}&gt;</span>
+                <span className="text-sm text-slate-500">{selectedMail.sender_name} &lt;{selectedMail.sender}&gt;</span>
               </div>
               <button onClick={() => handleReplyClick(selectedMail)} className="px-4 py-2 border rounded-lg text-sm flex items-center gap-2">
                 <Reply size={16} /> Reply
               </button>
             </div>
-            <div className="text-sm text-slate-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: selectedMail.html }} />
+            <div className="text-sm text-slate-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: selectedMail.body_html || selectedMail.body_text?.replace(/\n/g, '<br/>') }} />
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8">
