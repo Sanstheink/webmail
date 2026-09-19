@@ -65,13 +65,14 @@ export default function Webmail() {
     router.push('/login');
   }
 
-  // 4. ฟังก์ชันส่งอีเมล
+  // 4. ฟังก์ชันส่งอีเมล (อัปเดตระบบดัก Error ให้ฉลาดขึ้น)
   async function handleSendEmail(e) {
     e.preventDefault();
     setSending(true);
 
     try {
       const formData = new FormData();
+      formData.append('from', session.user.email);
       formData.append('to', to);
       formData.append('subject', subject);
       formData.append('html', body);
@@ -94,17 +95,22 @@ export default function Webmail() {
         setIsComposing(false);
         fetchEmails(session.user.email);
       } else {
-        const err = await res.json();
-        alert('❌ ส่งอีเมลล้มเหลว: ' + err.error);
+        // อ่านข้อความที่เซิร์ฟเวอร์ตอบกลับมาก่อนเพื่อดักจับ Error
+        const errorText = await res.text();
+        try {
+          const errObj = JSON.parse(errorText);
+          alert('❌ ส่งอีเมลล้มเหลว: ' + errObj.error);
+        } catch (parseErr) {
+          alert('❌ ระบบขัดข้อง (เซิร์ฟเวอร์ไม่ได้ตอบกลับเป็น JSON): \n' + errorText);
+        }
       }
     } catch (err) {
-      alert('❌ เกิดข้อผิดพลาด: ' + err.message);
+      alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message);
     } finally {
       setSending(false);
     }
   }
 
-  // หน้าจอโหลดข้อมูลระหว่างเช็ค Session
   if (loadingAuth) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 flex items-center justify-center">
@@ -113,7 +119,6 @@ export default function Webmail() {
     );
   }
 
-  // ถ้ายังไม่มี Session ให้หน้าว่างไว้ก่อน (ระบบจะ Redirect ไป /login เอง)
   if (!session) return null;
 
   return (
@@ -123,7 +128,6 @@ export default function Webmail() {
         {/* --- ฝั่งซ้าย: เมนู และ กล่องข้อความ --- */}
         <div className="w-full md:w-1/3 flex flex-col gap-6 h-full">
           
-          {/* Header & Auth Actions */}
           <div className="bg-white/70 backdrop-blur-xl border border-white/50 p-5 rounded-3xl shadow-lg shadow-blue-900/5 flex justify-between items-center transition-all">
             <div className="flex-1 truncate pr-4">
               <h1 className="text-2xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
@@ -152,7 +156,6 @@ export default function Webmail() {
             </div>
           </div>
 
-          {/* Form เขียนอีเมล */}
           <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isComposing ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
             <div className="bg-white/80 backdrop-blur-xl border border-white/50 p-6 rounded-3xl shadow-xl shadow-blue-900/10">
               <h2 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">✉️ เขียนจดหมายใหม่</h2>
@@ -204,7 +207,6 @@ export default function Webmail() {
             </div>
           </div>
 
-          {/* รายการอีเมล (Inbox) */}
           <div className="bg-white/70 backdrop-blur-xl border border-white/50 p-2 rounded-3xl shadow-lg shadow-blue-900/5 flex-1 flex flex-col overflow-hidden">
             <div className="p-4 pb-2">
               <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">📥 กล่องข้อความ</h2>
