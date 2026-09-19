@@ -13,11 +13,13 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(''); // เพิ่ม State สำหรับเก็บข้อความ Error
   const router = useRouter();
 
   async function handleLogin(e) {
     e.preventDefault();
     setLoading(true);
+    setErrorMsg(''); // เคลียร์ Error เดิมก่อนกดล็อกอินใหม่
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -25,10 +27,15 @@ export default function Login() {
     });
 
     if (error) {
-      alert('❌ เข้าสู่ระบบล้มเหลว: ' + error.message);
+      // ตรวจสอบและแสดงข้อความแจ้งเตือนที่ดูเป็นมิตรขึ้น
+      if (error.message.includes('Invalid login credentials')) {
+        setErrorMsg('อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
+      } else {
+        setErrorMsg('เกิดข้อผิดพลาด: ' + error.message);
+      }
       setLoading(false);
     } else {
-      router.push('/'); // ล็อกอินสำเร็จให้เด้งไปหน้าเว็บเมล
+      router.push('/'); 
     }
   }
 
@@ -42,7 +49,7 @@ export default function Login() {
         <div className="absolute bottom-0 left-0 -ml-8 -mb-8 w-24 h-24 rounded-full bg-slate-500/10 blur-xl"></div>
 
         <div className="relative z-10">
-          <div className="text-center mb-10">
+          <div className="text-center mb-8">
             <div className="w-16 h-16 bg-white border border-slate-100 rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-6 text-indigo-600">
               <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" />
@@ -56,14 +63,27 @@ export default function Login() {
             </p>
           </div>
 
+          {/* 🌟 กล่องแจ้งเตือน Error แบบ Custom */}
+          {errorMsg && (
+            <div className="mb-6 flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-[shake_0.4s_ease-in-out]">
+              <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm font-medium leading-relaxed">{errorMsg}</span>
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="flex flex-col gap-5">
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-1.5 uppercase tracking-wide">Email</label>
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all text-sm text-slate-900 placeholder:text-slate-400"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errorMsg) setErrorMsg(''); // เคลียร์ Error ทันทีที่เริ่มพิมพ์ใหม่
+                }}
+                className={`w-full px-4 py-3 bg-slate-50/50 border rounded-xl focus:outline-none focus:ring-2 focus:bg-white transition-all text-sm text-slate-900 placeholder:text-slate-400 ${errorMsg ? 'border-red-300 focus:ring-red-500/20' : 'border-slate-200 focus:ring-indigo-500/20 focus:border-indigo-500'}`}
                 placeholder="name@tidalis.site"
                 required
               />
@@ -74,8 +94,11 @@ export default function Login() {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all text-sm text-slate-900 placeholder:text-slate-400"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errorMsg) setErrorMsg(''); // เคลียร์ Error ทันทีที่เริ่มพิมพ์ใหม่
+                }}
+                className={`w-full px-4 py-3 bg-slate-50/50 border rounded-xl focus:outline-none focus:ring-2 focus:bg-white transition-all text-sm text-slate-900 placeholder:text-slate-400 ${errorMsg ? 'border-red-300 focus:ring-red-500/20' : 'border-slate-200 focus:ring-indigo-500/20 focus:border-indigo-500'}`}
                 placeholder="••••••••"
                 required
               />
@@ -96,6 +119,17 @@ export default function Login() {
           </form>
         </div>
       </div>
+      
+      {/* เพิ่ม Keyframes สำหรับ Animation สั่น */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-5px); }
+          40% { transform: translateX(5px); }
+          60% { transform: translateX(-3px); }
+          80% { transform: translateX(3px); }
+        }
+      `}} />
     </div>
   );
 }
