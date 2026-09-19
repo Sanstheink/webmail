@@ -1,24 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-// เชื่อมต่อ Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req) {
   try {
-    // Mailgun ส่งข้อมูลมาเป็น FormData
     const formData = await req.formData();
     
-    // ดึงข้อมูลฟิลด์ต่างๆ จาก Mailgun
     const sender = formData.get('from') || 'unknown@sender.com';
     const recipient = formData.get('To') || formData.get('recipient') || 'contact@tidalis.site';
     const subject = formData.get('subject') || '(No Subject)';
     const bodyHtml = formData.get('body-html') || '';
     const bodyText = formData.get('body-plain') || '';
 
-    // สกัดชื่อผู้ส่งและอีเมลออกจากรูปแบบ "Name <email@domain.com>"
+    // สกัดชื่อและอีเมล
     let senderName = sender;
     let cleanSenderEmail = sender;
     const match = sender.match(/(.*)<(.*)>/);
@@ -27,8 +24,39 @@ export async function POST(req) {
       cleanSenderEmail = match[2].trim();
     }
 
-    // บันทึกลงฐานข้อมูล Supabase ตาราง emails
-    const { error } = await supabase
+    // --- จัดการไฟล์แนบ ---
+    const attachmentCount = parseInt(formData.get('attachment-count') || '0');
+    const attachmentUrls = [];
+
+    for (let i = 1; i <= attachmentCount; i++) {
+      const file = formData.get(`attachment-${i}`);
+      if (file && file.size > 0) {
+        // ตั้งชื่อไฟล์ใหม่เพื่อป้องกันชื่อซ้ำ
+        const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
+        
+        // อัปโหลดขึ้น Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('attachments')
+          .upload(fileName, file);
+
+        if (!uploadError) {
+          // ดึง URL แบบ Public
+          const { data: publicUrlData } = supabase.storage
+            .from('attachments')
+            .getPublicUrl(fileName);
+          
+          attachmentUrls.push({
+            name: file.name,
+            url: publicUrlData.publicUrl,
+            size: file.size,
+            type: file.type
+          });
+        }
+      }
+    }
+
+    // บันทึกลงตาราง emails พร้อมลิงก์ไฟล์แนบ
+    const { error: dbError } = await supabase
       .from('emails')
       .insert({
         sender: cleanSenderEmail,
@@ -37,15 +65,12 @@ export async function POST(req) {
         subject: subject,
         body_html: bodyHtml,
         body_text: bodyText,
-        is_unread: true, // ตั้งค่าเริ่มต้นให้เป็นอีเมลที่ยังไม่อ่าน
+        is_unread: true,
+        attachments: attachmentUrls // บันทึกเป็น JSON
       });
 
-    if (error) {
-      console.error('Supabase Error:', error);
-      throw error;
-    }
+    if (dbError) throw dbError;
     
-    // ส่ง Status 200 กลับไปบอก Mailgun ว่ารับข้อมูลสำเร็จแล้ว (สำคัญมาก)
     return NextResponse.json({ success: true }, { status: 200 });
     
   } catch (error) {
