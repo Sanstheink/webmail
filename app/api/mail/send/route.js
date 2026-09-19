@@ -6,15 +6,22 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// เอาคำว่า default ออกแล้ว เป็น export async function POST แทน
 export async function POST(req) {
   try {
     const formData = await req.formData();
-    // รับค่า 'from' ที่ส่งมาจากหน้าเว็บ
     const fromEmail = formData.get('from') || 'contact@tidalis.site'; 
     const to = formData.get('to');
     const subject = formData.get('subject');
-    const html = formData.get('html');
+    
+    // ดึงเนื้อหาข้อความ
+    const rawHtml = formData.get('html') || '';
+    
+    // 🛠️ FIX 1: สร้างเวอร์ชัน Plain Text (ลบแท็ก HTML ออกให้หมด)
+    const plainText = rawHtml.replace(/<[^>]*>?/gm, '');
+    
+    // 🛠️ FIX 2: ห่อด้วยโครงสร้างแท็ก HTML มาตรฐาน
+    const properHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${rawHtml}</body></html>`;
+
     const files = formData.getAll('attachments');
     
     const mailgunDomain = 'tidalis.site';
@@ -30,7 +37,10 @@ export async function POST(req) {
     mailgunForm.append('from', `${senderName} <${fromEmail}>`);
     mailgunForm.append('to', to);
     mailgunForm.append('subject', subject);
-    if (html) mailgunForm.append('html', html);
+    
+    // แนบไปทั้ง 2 ฟอร์แมต
+    mailgunForm.append('text', plainText);
+    mailgunForm.append('html', properHtml);
 
     const attachmentRecords = [];
 
@@ -57,8 +67,6 @@ export async function POST(req) {
     }
 
     const basicAuth = Buffer.from(`api:${mailgunApiKey}`).toString('base64');
-    
-    // ⚠️ หมายเหตุ: ถ้า Mailgun ของคุณอยู่โซนยุโรป ให้เปลี่ยน api.mailgun.net เป็น api.eu.mailgun.net
     const mailgunRes = await fetch(`https://api.mailgun.net/v3/${mailgunDomain}/messages`, {
       method: 'POST',
       headers: {
@@ -72,13 +80,14 @@ export async function POST(req) {
       throw new Error(`Mailgun Error: ${errorText}`);
     }
 
+    // บันทึกประวัติการส่งลง Supabase
     await supabase.from('emails').insert({
       sender: fromEmail, 
       sender_name: senderName,
       recipient: to,
       subject: subject,
-      body_html: html,
-      body_text: html,
+      body_html: properHtml,
+      body_text: plainText,
       is_unread: false,
       attachments: attachmentRecords
     });
