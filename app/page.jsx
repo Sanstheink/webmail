@@ -65,17 +65,20 @@ export default function Webmail() {
     router.push('/login');
   }
 
-  // 4. ฟังก์ชันส่งอีเมล
+  // 4. ฟังก์ชันส่งอีเมล (อัปเดตให้ใช้อีเมลของคนที่ล็อกอิน)
   async function handleSendEmail(e) {
     e.preventDefault();
     setSending(true);
 
     try {
       const formData = new FormData();
+      // แนบอีเมลของคนที่กำลังใช้งานอยู่ส่งไปยัง API
+      formData.append('from', session.user.email);
       formData.append('to', to);
       formData.append('subject', subject);
       formData.append('html', body);
 
+      // แนบไฟล์
       for (let i = 0; i < files.length; i++) {
         formData.append('attachments', files[i]);
       }
