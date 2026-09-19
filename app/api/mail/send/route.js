@@ -6,35 +6,39 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export async function POST(req) {
+export default async function POST(req) {
   try {
     const formData = await req.formData();
+    // รับค่า 'from' ที่ส่งมาจากหน้าเว็บ ถ้าไม่มีให้ใช้ contact@tidalis.site เป็นค่าสำรอง
+    const fromEmail = formData.get('from') || 'contact@tidalis.site'; 
     const to = formData.get('to');
     const subject = formData.get('subject');
-    const text = formData.get('text');
     const html = formData.get('html');
-    const files = formData.getAll('attachments'); // รับไฟล์ทั้งหมดที่แนบมา
+    const files = formData.getAll('attachments');
     
-    const mailgunDomain = 'tidalis.site'; // โโดเมนของคุณ
-    const mailgunApiKey = process.env.MAILGUN_API_KEY; 
+    const mailgunDomain = 'tidalis.site';
+    const mailgunApiKey = process.env.MAILGUN_API_KEY;
+
+    if (!mailgunApiKey) {
+      throw new Error('MAILGUN_API_KEY is missing in Environment Variables.');
+    }
     
-    // สร้าง FormData สำหรับส่งให้ Mailgun
+    // ดึงชื่อผู้ส่งจากอีเมล (เช่น ดึงคำว่า hoshipixel ออกมาจาก hoshipixel@tidalis.site)
+    const senderName = fromEmail.split('@')[0];
+
     const mailgunForm = new FormData();
-    mailgunForm.append('from', `Contact <contact@${mailgunDomain}>`);
+    // ใช้อีเมลและชื่อของคนที่ล็อกอินจริงๆ เป็นผู้ส่ง
+    mailgunForm.append('from', `${senderName} <${fromEmail}>`);
     mailgunForm.append('to', to);
     mailgunForm.append('subject', subject);
-    if (text) mailgunForm.append('text', text);
     if (html) mailgunForm.append('html', html);
 
     const attachmentRecords = [];
 
-    // วนลูปจัดการไฟล์แนบ
     for (const file of files) {
       if (file && file.size > 0) {
-        // 1. แนบไฟล์ส่งไปที่ Mailgun
         mailgunForm.append('attachment', file);
 
-        // 2. อัปโหลดเก็บไว้ใน Supabase เพื่อแสดงในหน้าเว็บเมลของเรา
         const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
         const { error: uploadError } = await supabase.storage
           .from('attachments')
@@ -53,7 +57,6 @@ export async function POST(req) {
       }
     }
 
-    // ยิง API ไปที่ Mailgun
     const basicAuth = Buffer.from(`api:${mailgunApiKey}`).toString('base64');
     const mailgunRes = await fetch(`https://api.mailgun.net/v3/${mailgunDomain}/messages`, {
       method: 'POST',
@@ -68,22 +71,22 @@ export async function POST(req) {
       throw new Error(`Mailgun Error: ${errorText}`);
     }
 
-    // บันทึกประวัติการส่งลง Database
+    // บันทึกประวัติการส่งลง Database ให้ตรงกับผู้ส่งตัวจริง
     await supabase.from('emails').insert({
-      sender: `contact@${mailgunDomain}`,
-      sender_name: 'Me',
+      sender: fromEmail, // 👈 เปลี่ยนจาก contact เป็นผู้ส่งตัวจริง
+      sender_name: senderName,
       recipient: to,
       subject: subject,
-      body_html: html || text,
-      body_text: text,
+      body_html: html,
+      body_text: html,
       is_unread: false,
-      attachments: attachmentRecords // เก็บประวัติไฟล์ที่ส่งไป
+      attachments: attachmentRecords
     });
 
     return NextResponse.json({ success: true }, { status: 200 });
 
   } catch (error) {
-    console.error("Send Mail Error:", error);
+    console.error("Outbound Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
