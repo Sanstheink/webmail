@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -9,6 +10,10 @@ const supabase = createClient(
 );
 
 export default function Webmail() {
+  const router = useRouter();
+  const [session, setSession] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  
   const [emails, setEmails] = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
   
@@ -19,18 +24,48 @@ export default function Webmail() {
   const [sending, setSending] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
 
+  // 1. ตรวจสอบสถานะการเข้าสู่ระบบ
   useEffect(() => {
-    fetchEmails();
-  }, []);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        router.push('/login');
+      } else {
+        setSession(session);
+        fetchEmails(session.user.email);
+      }
+      setLoadingAuth(false);
+    });
 
-  async function fetchEmails() {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        router.push('/login');
+      } else {
+        setSession(session);
+        fetchEmails(session.user.email);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  // 2. ดึงข้อมูลอีเมลเฉพาะของคนที่ล็อกอิน
+  async function fetchEmails(userEmail) {
     const { data, error } = await supabase
       .from('emails')
       .select('*')
+      .or(`recipient.eq.${userEmail},sender.eq.${userEmail}`)
       .order('created_at', { ascending: false });
+      
     if (!error && data) setEmails(data);
   }
 
+  // 3. ฟังก์ชันออกจากระบบ
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push('/login');
+  }
+
+  // 4. ฟังก์ชันส่งอีเมล
   async function handleSendEmail(e) {
     e.preventDefault();
     setSending(true);
@@ -57,7 +92,7 @@ export default function Webmail() {
         setBody('');
         setFiles([]);
         setIsComposing(false);
-        fetchEmails();
+        fetchEmails(session.user.email);
       } else {
         const err = await res.json();
         alert('❌ ส่งอีเมลล้มเหลว: ' + err.error);
@@ -69,33 +104,55 @@ export default function Webmail() {
     }
   }
 
+  // หน้าจอโหลดข้อมูลระหว่างเช็ค Session
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // ถ้ายังไม่มี Session ให้หน้าว่างไว้ก่อน (ระบบจะ Redirect ไป /login เอง)
+  if (!session) return null;
+
   return (
-    // พื้นหลังแบบ Gradient เคลื่อนไหวช้าๆ
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-4 sm:p-6 lg:p-8 text-slate-800 font-sans selection:bg-blue-200">
       <div className="max-w-7xl mx-auto h-[90vh] flex flex-col md:flex-row gap-6">
         
         {/* --- ฝั่งซ้าย: เมนู และ กล่องข้อความ --- */}
         <div className="w-full md:w-1/3 flex flex-col gap-6 h-full">
           
-          {/* Header & Compose Button */}
+          {/* Header & Auth Actions */}
           <div className="bg-white/70 backdrop-blur-xl border border-white/50 p-5 rounded-3xl shadow-lg shadow-blue-900/5 flex justify-between items-center transition-all">
-            <div>
+            <div className="flex-1 truncate pr-4">
               <h1 className="text-2xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
                 Tidalis Mail
               </h1>
-              <p className="text-sm text-slate-500 font-medium">จัดการอีเมลของคุณ</p>
+              <p className="text-xs text-slate-500 font-medium truncate">
+                ผู้ใช้: {session.user.email}
+              </p>
             </div>
-            <button
-              onClick={() => setIsComposing(!isComposing)}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg hover:shadow-blue-500/30 hover:-translate-y-1 transition-all duration-300 active:scale-95"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transition-transform duration-300 ${isComposing ? 'rotate-45' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+            
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={handleLogout}
+                className="px-3 py-2 bg-red-50 text-red-600 text-xs font-semibold rounded-xl hover:bg-red-100 transition-all flex items-center justify-center"
+              >
+                ออก
+              </button>
+              <button
+                onClick={() => setIsComposing(!isComposing)}
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white w-10 h-10 rounded-xl flex items-center justify-center shadow-lg hover:shadow-blue-500/30 hover:-translate-y-1 transition-all duration-300 active:scale-95"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform duration-300 ${isComposing ? 'rotate-45' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          {/* Form เขียนอีเมล (มี Animation เปิด/ปิด) */}
+          {/* Form เขียนอีเมล */}
           <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isComposing ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
             <div className="bg-white/80 backdrop-blur-xl border border-white/50 p-6 rounded-3xl shadow-xl shadow-blue-900/10">
               <h2 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">✉️ เขียนจดหมายใหม่</h2>
@@ -105,7 +162,7 @@ export default function Webmail() {
                   placeholder="ถึง (Email ปลายทาง)"
                   value={to}
                   onChange={(e) => setTo(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all"
+                  className="w-full px-4 py-3 bg-white/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all text-sm"
                   required
                 />
                 <input
@@ -113,14 +170,14 @@ export default function Webmail() {
                   placeholder="หัวเรื่อง"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all"
+                  className="w-full px-4 py-3 bg-white/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all text-sm"
                   required
                 />
                 <textarea
                   placeholder="พิมพ์ข้อความของคุณที่นี่..."
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all h-28 resize-none"
+                  className="w-full px-4 py-3 bg-white/50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all h-24 resize-none text-sm"
                   required
                 />
                 <div className="relative group">
@@ -128,17 +185,17 @@ export default function Webmail() {
                     type="file"
                     multiple
                     onChange={(e) => setFiles(e.target.files)}
-                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer"
+                    className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={sending}
-                  className="mt-2 w-full bg-slate-900 text-white py-3.5 rounded-xl font-semibold hover:bg-slate-800 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                  className="mt-2 w-full bg-slate-900 text-white py-3 rounded-xl text-sm font-semibold hover:bg-slate-800 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-70 flex justify-center items-center gap-2"
                 >
                   {sending ? (
                     <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                       กำลังส่ง...
                     </>
                   ) : 'ส่งอีเมล'}
@@ -191,33 +248,30 @@ export default function Webmail() {
         <div className="w-full md:w-2/3 bg-white/90 backdrop-blur-2xl border border-white/60 rounded-[2rem] shadow-xl shadow-blue-900/10 overflow-hidden flex flex-col h-full relative">
           {selectedEmail ? (
             <div className="h-full flex flex-col animate-[fadeIn_0.3s_ease-out]">
-              {/* Email Header */}
               <div className="p-8 pb-6 border-b border-slate-100 bg-white/50">
                 <h1 className="text-2xl md:text-3xl font-bold text-slate-800 mb-6 leading-tight">
                   {selectedEmail.subject}
                 </h1>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-blue-600 font-bold text-lg shadow-inner">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-blue-600 font-bold text-lg shadow-inner shrink-0">
                     {selectedEmail.sender_name ? selectedEmail.sender_name[0].toUpperCase() : '@'}
                   </div>
-                  <div className="flex-1">
-                    <div className="font-semibold text-slate-900">{selectedEmail.sender_name}</div>
-                    <div className="text-sm text-slate-500">{selectedEmail.sender}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-slate-900 truncate">{selectedEmail.sender_name}</div>
+                    <div className="text-sm text-slate-500 truncate">{selectedEmail.sender}</div>
                   </div>
-                  <div className="text-xs text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+                  <div className="text-xs text-slate-400 bg-slate-100 px-3 py-1 rounded-full hidden sm:block">
                     ถึง: {selectedEmail.recipient}
                   </div>
                 </div>
               </div>
 
-              {/* Email Body */}
               <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
                 <div
-                  className="prose prose-slate prose-blue max-w-none text-slate-700 leading-relaxed"
+                  className="prose prose-slate prose-blue max-w-none text-slate-700 leading-relaxed text-sm sm:text-base"
                   dangerouslySetInnerHTML={{ __html: selectedEmail.body_html || selectedEmail.body_text }}
                 />
 
-                {/* Attachments Section */}
                 {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
                   <div className="mt-12 pt-6 border-t border-slate-100">
                     <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -252,7 +306,6 @@ export default function Webmail() {
               </div>
             </div>
           ) : (
-            // Empty State
             <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center animate-pulse">
               <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -267,7 +320,6 @@ export default function Webmail() {
 
       </div>
       
-      {/* เพิ่ม Style สำหรับ Scrollbar และ Animation เล็กน้อย */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
