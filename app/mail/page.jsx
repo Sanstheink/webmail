@@ -1,218 +1,195 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Inbox, Send, Search, Reply, MailOpen, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// ตั้งค่า Supabase Client สำหรับฝั่ง Frontend
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
-export default function WebmailDashboard() {
+export default function Webmail() {
   const [emails, setEmails] = useState([]);
-  const [selectedMail, setSelectedMail] = useState(null);
-  const [currentTab, setCurrentTab] = useState('inbox');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEmail, setSelectedEmail] = useState(null);
   
-  const [composeTo, setComposeTo] = useState('');
-  const [composeSubject, setComposeSubject] = useState('');
-  const [composeBody, setComposeBody] = useState('');
-  const [sendingStatus, setSendingStatus] = useState(null);
+  // State สำหรับฟอร์มส่งอีเมล
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [files, setFiles] = useState([]);
+  const [sending, setSending] = useState(false);
 
-  // ดึงอีเมลจาก Database เมื่อเปิดหน้าเว็บ
+  // ดึงรายการอีเมลจาก Supabase
   useEffect(() => {
     fetchEmails();
-  }, [currentTab]);
+  }, []);
 
-  const fetchEmails = async () => {
-    // ถ้าอยู่หน้า Inbox ให้ดึงเมลที่ส่งหาเรา, ถ้าอยู่หน้า Sent ให้ดึงเมลที่เราส่งออก
-    const recipientFilter = currentTab === 'inbox' 
-      ? { column: 'recipient', value: 'contact@tidalis.site' } // อีเมลโดเมนคุณ
-      : { column: 'sender', value: 'contact@tidalis.site' };
-      
+  async function fetchEmails() {
     const { data, error } = await supabase
       .from('emails')
       .select('*')
-      .eq(recipientFilter.column, recipientFilter.value)
       .order('created_at', { ascending: false });
+    if (!error && data) setEmails(data);
+  }
 
-    if (!error && data) {
-      setEmails(data);
-    }
-  };
-
-  const filteredEmails = emails.filter(m => 
-    m.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.sender_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.sender?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const handleSelectMail = async (mail) => {
-    setSelectedMail(mail);
-    
-    // อัปเดตสถานะเป็น "อ่านแล้ว" ใน Database
-    if (mail.is_unread) {
-      await supabase
-        .from('emails')
-        .update({ is_unread: false })
-        .eq('id', mail.id);
-      
-      setEmails(prev => prev.map(m => m.id === mail.id ? { ...m, is_unread: false } : m));
-    }
-    setCurrentTab('inbox');
-  };
-
-  const handleReplyClick = (mail) => {
-    setCurrentTab('compose');
-    setComposeTo(mail.sender);
-    setComposeSubject(`Re: ${mail.subject}`);
-    setComposeBody(`\n\n--- Original Message ---\nFrom: ${mail.sender_name} <${mail.sender}>\nDate: ${new Date(mail.created_at).toLocaleString()}\n\n`);
-  };
-
-  const handleSendMail = async (e) => {
+  // ฟังก์ชันส่งอีเมลพร้อมไฟล์แนบ
+  async function handleSendEmail(e) {
     e.preventDefault();
-    setSendingStatus('sending');
+    setSending(true);
 
     try {
+      const formData = new FormData();
+      formData.append('to', to);
+      formData.append('subject', subject);
+      formData.append('html', body);
+
+      // แนบไฟล์ลง FormData
+      for (let i = 0; i < files.length; i++) {
+        formData.append('attachments', files[i]);
+      }
+
       const res = await fetch('/api/mail/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: composeTo,
-          subject: composeSubject,
-          html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
-          text: composeBody,
-        }),
+        body: formData,
       });
 
-      if (!res.ok) throw new Error('Failed to send');
-
-      // บันทึกอีเมลที่ส่งออกลง Database ด้วย จะได้โชว์ในหน้า Sent
-      await supabase
-        .from('emails')
-        .insert({
-          sender: 'contact@tidalis.site',
-          sender_name: 'Me',
-          recipient: composeTo,
-          subject: composeSubject,
-          body_html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
-          body_text: composeBody,
-          is_unread: false,
-        });
-
-      setSendingStatus('sent');
-      setTimeout(() => {
-        setSendingStatus(null);
-        setCurrentTab('inbox');
-        setComposeTo('');
-        setComposeSubject('');
-        setComposeBody('');
-        fetchEmails(); // รีเฟรชข้อมูลใหม่
-      }, 1000);
-    } catch {
-      setSendingStatus('error');
+      if (res.ok) {
+        alert('ส่งอีเมลสำเร็จ!');
+        setTo('');
+        setSubject('');
+        setBody('');
+        setFiles([]);
+        fetchEmails(); // โหลดรายการอีเมลใหม่
+      } else {
+        const err = await res.json();
+        alert('ส่งอีเมลล้มเหลว: ' + err.error);
+      }
+    } catch (err) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setSending(false);
     }
-  };
+  }
 
-  // ... (ส่วน UI <div className="flex h-screen..."> ยังเหมือนเดิมทุกประการ ไม่ต้องแก้ครับ แต่เปลี่ยนการอ้างอิงตัวแปรนิดหน่อย เช่น mail.html เปลี่ยนเป็น mail.body_html) ...
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col p-4">
-        <div className="flex items-center gap-2 px-2 py-3 mb-6">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">W</div>
-          <span className="font-bold text-slate-900 tracking-tight">DomainMail UI</span>
-        </div>
-        <button 
-          onClick={() => { setCurrentTab('compose'); setSelectedMail(null); }}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 mb-6"
-        >
-          <Send size={16} /> Compose
-        </button>
-        <nav className="space-y-1 flex-1">
-          <button 
-            onClick={() => { setCurrentTab('inbox'); setSelectedMail(null); }}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition ${currentTab === 'inbox' && !selectedMail ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            <div className="flex items-center gap-3"><Inbox size={18} /> Inbox</div>
-          </button>
-          <button 
-            onClick={() => { setCurrentTab('sent'); setSelectedMail(null); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${currentTab === 'sent' && !selectedMail ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            <Send size={18} /> Sent
-          </button>
-        </nav>
-      </aside>
-
-      <div className="w-80 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-4 border-b border-slate-200">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-100 border-0 rounded-lg text-sm focus:outline-none"
+    <div className="flex h-screen bg-gray-100 p-4 gap-4">
+      {/* ฝั่งซ้าย: กล่องข้อความและเขียนอีเมล */}
+      <div className="w-1/2 flex flex-col gap-4">
+        {/* ฟอร์มเขียนอีเมล */}
+        <div className="bg-white p-4 rounded-xl shadow">
+          <h2 className="text-lg font-bold mb-3">✉️ เขียนอีเมลใหม่</h2>
+          <form onSubmit={handleSendEmail} className="flex flex-col gap-2">
+            <input
+              type="email"
+              placeholder="ถึง (Email ปลายทาง)"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="p-2 border rounded"
+              required
             />
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-          {filteredEmails.map((mail) => (
-            <div 
-              key={mail.id}
-              onClick={() => handleSelectMail(mail)}
-              className={`p-4 cursor-pointer transition hover:bg-slate-50 ${selectedMail?.id === mail.id ? 'bg-indigo-50/50 border-l-4 border-indigo-600' : ''} ${mail.is_unread ? 'bg-white' : 'bg-slate-50/50'}`}
-            >
-              <div className="flex justify-between items-center mb-1">
-                <span className={`text-xs truncate ${mail.is_unread ? 'font-bold text-slate-900' : 'text-slate-500'}`}>{mail.sender_name || mail.sender}</span>
-                <span className="text-[10px] text-slate-400">{new Date(mail.created_at).toLocaleDateString()}</span>
-              </div>
-              <div className={`text-sm truncate mb-1 ${mail.is_unread ? 'font-bold text-slate-900' : 'text-slate-700'}`}>{mail.subject}</div>
-              <div className="text-xs text-slate-400 truncate">{mail.body_text}</div>
+            <input
+              type="text"
+              placeholder="หัวข้อ"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="p-2 border rounded"
+              required
+            />
+            <textarea
+              placeholder="ข้อความ..."
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              className="p-2 border rounded h-24"
+              required
+            />
+            {/* ช่องเลือกไฟล์แนบ */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">แนบไฟล์ (รูปภาพ/เอกสาร):</label>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => setFiles(e.target.files)}
+                className="text-sm"
+              />
             </div>
-          ))}
-          {filteredEmails.length === 0 && (
-            <div className="p-4 text-center text-xs text-slate-400 mt-4">No emails found</div>
-          )}
+            <button
+              type="submit"
+              disabled={sending}
+              className="bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {sending ? 'กำลังส่ง...' : 'ส่งอีเมล'}
+            </button>
+          </form>
+        </div>
+
+        {/* รายการอีเมลในกล่องข้อความ */}
+        <div className="bg-white p-4 rounded-xl shadow flex-1 overflow-y-auto">
+          <h2 className="text-lg font-bold mb-3">📥 กล่องข้อความ</h2>
+          <div className="flex flex-col gap-2">
+            {emails.map((mail) => (
+              <div
+                key={mail.id}
+                onClick={() => setSelectedEmail(mail)}
+                className={`p-3 border rounded cursor-pointer hover:bg-blue-50 transition ${
+                  selectedEmail?.id === mail.id ? 'bg-blue-100 border-blue-400' : ''
+                }`}
+              >
+                <div className="flex justify-between font-semibold text-sm">
+                  <span>{mail.sender_name || mail.sender}</span>
+                  {mail.attachments?.length > 0 && <span>📎</span>}
+                </div>
+                <div className="text-sm text-gray-800 font-medium truncate">{mail.subject}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <main className="flex-1 bg-white flex flex-col overflow-y-auto">
-        {currentTab === 'compose' ? (
-          <div className="max-w-3xl w-full mx-auto p-8">
-            <h2 className="text-lg font-bold text-slate-900 mb-6">New Message</h2>
-            <form onSubmit={handleSendMail} className="space-y-4">
-              <input type="email" required placeholder="To" value={composeTo} onChange={e => setComposeTo(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" />
-              <input type="text" required placeholder="Subject" value={composeSubject} onChange={e => setComposeSubject(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" />
-              <textarea rows={8} required placeholder="Body" value={composeBody} onChange={e => setComposeBody(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm font-mono" />
-              <button type="submit" disabled={sendingStatus === 'sending'} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50">
-                {sendingStatus === 'sending' ? 'Sending...' : 'Send Message'}
-              </button>
-              {sendingStatus === 'sent' && <span className="ml-4 text-emerald-600 text-sm flex items-center gap-1 inline-flex"><CheckCircle2 size={16} /> Sent!</span>}
-            </form>
-          </div>
-        ) : selectedMail ? (
-          <div className="p-8 max-w-4xl mx-auto w-full">
-            <div className="flex items-center justify-between pb-6 border-b mb-6">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 mb-2">{selectedMail.subject}</h1>
-                <span className="text-sm text-slate-500">{selectedMail.sender_name} &lt;{selectedMail.sender}&gt;</span>
-              </div>
-              <button onClick={() => handleReplyClick(selectedMail)} className="px-4 py-2 border rounded-lg text-sm flex items-center gap-2">
-                <Reply size={16} /> Reply
-              </button>
+      {/* ฝั่งขวา: รายละเอียดอีเมลที่เลือก */}
+      <div className="w-1/2 bg-white p-6 rounded-xl shadow overflow-y-auto">
+        {selectedEmail ? (
+          <div>
+            <h1 className="text-xl font-bold mb-2">{selectedEmail.subject}</h1>
+            <div className="text-sm text-gray-500 border-b pb-3 mb-4">
+              <div><strong>จาก:</strong> {selectedEmail.sender_name} ({selectedEmail.sender})</div>
+              <div><strong>ถึง:</strong> {selectedEmail.recipient}</div>
             </div>
-            <div className="text-sm text-slate-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: selectedMail.body_html || selectedMail.body_text?.replace(/\n/g, '<br/>') }} />
+
+            {/* เนื้อหาอีเมล */}
+            <div
+              className="prose max-w-none text-gray-800 mb-6"
+              dangerouslySetInnerHTML={{ __html: selectedEmail.body_html || selectedEmail.body_text }}
+            />
+
+            {/* แสดงไฟล์แนบ (ถ้ามี) */}
+            {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+              <div className="p-4 border rounded-lg bg-gray-50">
+                <p className="font-semibold text-sm text-gray-700 mb-2">
+                  📎 ไฟล์แนบ ({selectedEmail.attachments.length} ไฟล์)
+                </p>
+                <div className="flex flex-col gap-2">
+                  {selectedEmail.attachments.map((file, idx) => (
+                    <a
+                      key={idx}
+                      href={file.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-between p-2 bg-white border rounded text-sm text-blue-600 hover:bg-blue-50 transition"
+                    >
+                      <span className="truncate">{file.name || `ไฟล์แนบ ${idx + 1}`}</span>
+                      <span className="text-xs text-gray-400 ml-2">เปิดดู/ดาวน์โหลด ↗</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8">
-            <MailOpen size={48} className="mb-4 stroke-[1.5]" />
-            <p className="text-sm">Select an email to read</p>
+          <div className="flex h-full items-center justify-center text-gray-400">
+            เลือกอีเมลทางซ้ายเพื่อเปิดอ่าน
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
