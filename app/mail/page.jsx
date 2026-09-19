@@ -24,6 +24,18 @@ export default function Webmail() {
   const [sending, setSending] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
 
+  // 🌟 State สำหรับระบบแจ้งเตือน (Toast Notification)
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // ฟังก์ชันเรียกใช้การแจ้งเตือน
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    // ตั้งเวลาให้หายไปเองใน 4 วินาที
+    setTimeout(() => {
+      setToast((prev) => ({ ...prev, show: false }));
+    }, 4000);
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/login');
@@ -52,7 +64,11 @@ export default function Webmail() {
       // .or(`recipient.ilike.%${userEmail}%,sender.ilike.%${userEmail}%`)
       .order('created_at', { ascending: false });
       
-    if (!error && data) setEmails(data);
+    if (error) {
+      showToast('ดึงข้อมูลไม่ได้: ' + error.message, 'error');
+    } else if (data) {
+      setEmails(data);
+    }
   }
 
   async function handleLogout() {
@@ -81,7 +97,7 @@ export default function Webmail() {
       });
 
       if (res.ok) {
-        alert('✨ ส่งอีเมลสำเร็จ!');
+        showToast('ส่งอีเมลสำเร็จ!', 'success');
         setTo('');
         setSubject('');
         setBody('');
@@ -92,13 +108,13 @@ export default function Webmail() {
         const errorText = await res.text();
         try {
           const errObj = JSON.parse(errorText);
-          alert('❌ ส่งอีเมลล้มเหลว: ' + errObj.error);
+          showToast('ส่งอีเมลล้มเหลว: ' + errObj.error, 'error');
         } catch (parseErr) {
-          alert('❌ ระบบขัดข้อง: \n' + errorText);
+          showToast('ระบบขัดข้อง: ' + errorText, 'error');
         }
       }
     } catch (err) {
-      alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message);
+      showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message, 'error');
     } finally {
       setSending(false);
     }
@@ -118,8 +134,32 @@ export default function Webmail() {
   if (!session) return null;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50/50 via-slate-50 to-white p-4 sm:p-6 lg:p-8 text-slate-800 font-sans selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden">
+    <div className="min-h-screen bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50/50 via-slate-50 to-white p-4 sm:p-6 lg:p-8 text-slate-800 font-sans selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden relative">
       
+      {/* 🌟 Toast Notification (Popup ด้านขวาล่าง) */}
+      <div className={`fixed bottom-6 right-6 z-50 transition-all duration-500 ease-out ${toast.show ? 'translate-y-0 opacity-100 visible' : 'translate-y-10 opacity-0 invisible'}`}>
+        <div className={`flex items-start gap-3 px-5 py-4 rounded-2xl shadow-2xl backdrop-blur-xl border border-white/40 ${toast.type === 'success' ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'}`}>
+          <div className="shrink-0 mt-0.5">
+            {toast.type === 'success' ? (
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 pr-2">
+            <h4 className="text-sm font-bold tracking-wide">{toast.type === 'success' ? 'สำเร็จ' : 'เกิดข้อผิดพลาด'}</h4>
+            <p className="text-xs font-medium opacity-90 mt-0.5 max-w-[250px]">{toast.message}</p>
+          </div>
+          <button onClick={() => setToast((prev) => ({ ...prev, show: false }))} className="shrink-0 opacity-70 hover:opacity-100 transition-opacity">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      </div>
+
       {/* Main App Container */}
       <div className="max-w-[1440px] mx-auto h-[92vh] flex flex-col md:flex-row gap-6">
         
@@ -157,7 +197,7 @@ export default function Webmail() {
             </div>
           </div>
 
-          {/* Compose Form (Smooth Collapse) */}
+          {/* Compose Form */}
           <div className={`transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden rounded-[24px] bg-white border border-slate-100 shadow-[0_20px_40px_rgb(0,0,0,0.06)] ${isComposing ? 'max-h-[700px] opacity-100 mb-2' : 'max-h-0 opacity-0 mb-0 border-transparent shadow-none'}`}>
             <div className="p-6">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-5">New Message</h2>
@@ -214,11 +254,9 @@ export default function Webmail() {
                           ${isSelected ? 'bg-indigo-50/50' : 'bg-transparent hover:bg-white'}
                         `}
                       >
-                        {/* Active Indicator Line */}
                         {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 rounded-r-full"></div>}
                         
                         <div className="flex items-start gap-3">
-                          {/* Avatar */}
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 transition-colors
                             ${isSelected ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'}`}>
                             {mail.sender_name ? mail.sender_name.charAt(0).toUpperCase() : '@'}
@@ -281,8 +319,6 @@ export default function Webmail() {
 
               {/* Email Content */}
               <div className="p-8 overflow-y-auto flex-1 custom-scrollbar bg-[#fafcff]">
-                
-                {/* HTML Body Rendering */}
                 <div
                   className="prose prose-slate prose-a:text-indigo-600 hover:prose-a:text-indigo-800 max-w-none text-slate-700 leading-relaxed"
                   dangerouslySetInnerHTML={{ __html: selectedEmail.body_html || selectedEmail.body_text }}
