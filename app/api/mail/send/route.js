@@ -6,10 +6,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export default async function POST(req) {
+// เอาคำว่า default ออกแล้ว เป็น export async function POST แทน
+export async function POST(req) {
   try {
     const formData = await req.formData();
-    // รับค่า 'from' ที่ส่งมาจากหน้าเว็บ ถ้าไม่มีให้ใช้ contact@tidalis.site เป็นค่าสำรอง
+    // รับค่า 'from' ที่ส่งมาจากหน้าเว็บ
     const fromEmail = formData.get('from') || 'contact@tidalis.site'; 
     const to = formData.get('to');
     const subject = formData.get('subject');
@@ -23,11 +24,9 @@ export default async function POST(req) {
       throw new Error('MAILGUN_API_KEY is missing in Environment Variables.');
     }
     
-    // ดึงชื่อผู้ส่งจากอีเมล (เช่น ดึงคำว่า hoshipixel ออกมาจาก hoshipixel@tidalis.site)
     const senderName = fromEmail.split('@')[0];
 
     const mailgunForm = new FormData();
-    // ใช้อีเมลและชื่อของคนที่ล็อกอินจริงๆ เป็นผู้ส่ง
     mailgunForm.append('from', `${senderName} <${fromEmail}>`);
     mailgunForm.append('to', to);
     mailgunForm.append('subject', subject);
@@ -58,6 +57,8 @@ export default async function POST(req) {
     }
 
     const basicAuth = Buffer.from(`api:${mailgunApiKey}`).toString('base64');
+    
+    // ⚠️ หมายเหตุ: ถ้า Mailgun ของคุณอยู่โซนยุโรป ให้เปลี่ยน api.mailgun.net เป็น api.eu.mailgun.net
     const mailgunRes = await fetch(`https://api.mailgun.net/v3/${mailgunDomain}/messages`, {
       method: 'POST',
       headers: {
@@ -71,9 +72,8 @@ export default async function POST(req) {
       throw new Error(`Mailgun Error: ${errorText}`);
     }
 
-    // บันทึกประวัติการส่งลง Database ให้ตรงกับผู้ส่งตัวจริง
     await supabase.from('emails').insert({
-      sender: fromEmail, // 👈 เปลี่ยนจาก contact เป็นผู้ส่งตัวจริง
+      sender: fromEmail, 
       sender_name: senderName,
       recipient: to,
       subject: subject,
