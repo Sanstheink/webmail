@@ -44,7 +44,7 @@ export default function Webmail() {
   const [draftId, setDraftId] = useState(null);
 
   const [showSettings, setShowSettings] = useState(false);
-  const [theme, setTheme] = useState('dark'); // ตั้งค่า Default เป็น Dark ไว้ก่อน
+  const [theme, setTheme] = useState('dark');
   const [lang, setLang] = useState('en');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -62,10 +62,10 @@ export default function Webmail() {
       if (!session) router.push('/login');
       else {
         setSession(session);
-        const meta = session.user.user_metadata;
-        if (meta?.theme) setTheme(meta.theme);
-        if (meta?.language) setLang(meta.language);
-        if (meta?.avatar_url) setAvatarUrl(meta.avatar_url);
+        const meta = session.user?.user_metadata || {};
+        if (meta.theme) setTheme(meta.theme);
+        if (meta.language) setLang(meta.language);
+        if (meta.avatar_url) setAvatarUrl(meta.avatar_url);
         fetchEmails(session.user.email);
       }
       setLoadingAuth(false);
@@ -75,10 +75,10 @@ export default function Webmail() {
       if (!session) router.push('/login');
       else {
         setSession(session);
-        const meta = session.user.user_metadata;
-        if (meta?.theme) setTheme(meta.theme);
-        if (meta?.language) setLang(meta.language);
-        if (meta?.avatar_url) setAvatarUrl(meta.avatar_url);
+        const meta = session.user?.user_metadata || {};
+        if (meta.theme) setTheme(meta.theme);
+        if (meta.language) setLang(meta.language);
+        if (meta.avatar_url) setAvatarUrl(meta.avatar_url);
         fetchEmails(session.user.email);
       }
     });
@@ -90,11 +90,15 @@ export default function Webmail() {
     if (!error && data) setEmails(data);
   }
 
+  // 🛡️ ป้องกัน Error จากค่า Null ตอนฟิลเตอร์อีเมล
   const filteredEmails = emails.filter(mail => {
     const userEmail = session?.user?.email || '';
-    if (currentFolder === 'inbox') return mail.recipient.includes(userEmail) && !mail.is_draft;
-    if (currentFolder === 'sent') return mail.sender.includes(userEmail) && !mail.is_draft;
-    if (currentFolder === 'drafts') return mail.sender.includes(userEmail) && mail.is_draft;
+    const recipient = mail.recipient || '';
+    const sender = mail.sender || '';
+
+    if (currentFolder === 'inbox') return recipient.includes(userEmail) && !mail.is_draft;
+    if (currentFolder === 'sent') return sender.includes(userEmail) && !mail.is_draft;
+    if (currentFolder === 'drafts') return sender.includes(userEmail) && mail.is_draft;
     return true;
   });
 
@@ -110,7 +114,7 @@ export default function Webmail() {
   };
 
   const handleAvatarUpload = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
     setUploadingAvatar(true);
     try {
@@ -126,6 +130,41 @@ export default function Webmail() {
       showToast('Error: ' + error.message, 'error');
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!to && !subject && !body) {
+      showToast(lang === 'th' ? 'กรุณากรอกข้อมูลอย่างน้อย 1 ช่อง' : 'Please fill at least one field', 'error');
+      return;
+    }
+
+    const emailData = {
+      sender: session.user.email,
+      sender_name: session.user.email.split('@')[0],
+      recipient: to || '',
+      subject: subject || '(ไม่มีหัวเรื่อง)',
+      body_html: body || '',
+      body_text: body || '',
+      is_unread: false,
+      is_draft: true
+    };
+
+    let error;
+    if (draftId) {
+      const res = await supabase.from('emails').update(emailData).eq('id', draftId);
+      error = res.error;
+    } else {
+      const res = await supabase.from('emails').insert([emailData]);
+      error = res.error;
+    }
+
+    if (error) {
+      showToast('Error: ' + error.message, 'error');
+    } else {
+      showToast(lang === 'th' ? 'บันทึกฉบับร่างสำเร็จ' : 'Draft saved', 'success');
+      resetCompose();
+      fetchEmails(session.user.email);
     }
   };
 
@@ -161,19 +200,27 @@ export default function Webmail() {
 
   const handleEmailClick = (mail) => {
     if (mail.is_draft) {
-      setTo(mail.recipient); setSubject(mail.subject !== '(ไม่มีหัวเรื่อง)' ? mail.subject : ''); setBody(mail.body_text); setDraftId(mail.id); setIsComposing(true); setSelectedEmail(null);
+      setTo(mail.recipient || ''); 
+      setSubject(mail.subject !== '(ไม่มีหัวเรื่อง)' ? (mail.subject || '') : ''); 
+      setBody(mail.body_text || ''); 
+      setDraftId(mail.id); 
+      setIsComposing(true); 
+      setSelectedEmail(null);
     } else {
-      setSelectedEmail(mail); setIsComposing(false); setDraftId(null);
+      setSelectedEmail(mail); 
+      setIsComposing(false); 
+      setDraftId(null);
     }
   };
 
   if (loadingAuth) return <div className="min-h-screen bg-[#00072d] flex items-center justify-center"><div className="w-12 h-12 border-4 border-[#051650] border-t-[#123499] rounded-full animate-spin"></div></div>;
   if (!session) return null;
 
-  const t = DICT[lang]; 
+  // 🛡️ ป้องกัน Error กรณีที่ lang มีค่าแปลกๆ ให้ใช้ 'en' เป็นค่ามาตรฐาน
+  const t = DICT[lang] || DICT['en']; 
   const isDark = theme === 'dark'; 
 
-  // 🌟 ใช้โทนสี Brand Asset สำหรับโหมดมืด[cite: 2]
+  // ชุดสีและพื้นหลัง
   const bgApp = isDark 
     ? 'bg-gradient-to-br from-[#00072d] via-[#051650] to-[#0a2472] bg-animate' 
     : 'bg-gradient-to-br from-[#e0f2fe] via-[#f0f9ff] to-[#e0e7ff] bg-animate';
@@ -188,36 +235,45 @@ export default function Webmail() {
   const sidebarBg = isDark ? 'bg-[#00072d] border border-[#051650]' : 'bg-[#1A1A1A]';
   const primaryBtn = isDark ? 'bg-[#123499] hover:bg-[#0a2472]' : 'bg-[#1A1A1A] hover:bg-black';
 
-  // สีของลูกแก้ว (Blobs) ที่ลอยอยู่ด้านหลัง[cite: 2]
   const blob1 = isDark ? 'bg-[#123499]/40' : 'bg-cyan-300/40';
   const blob2 = isDark ? 'bg-[#0a2472]/50' : 'bg-purple-300/40';
 
   return (
     <div className={`min-h-screen relative flex items-center justify-center p-2 sm:p-6 overflow-hidden transition-all duration-700 ${bgApp}`}>
       
-      {/* 🌟 Background Floating Orbs (Animation) */}
+      {/* Background Floating Orbs */}
       <div className={`absolute top-[-5%] left-[5%] w-[40vw] h-[40vw] rounded-full blur-[100px] animate-blob1 mix-blend-screen transition-colors duration-700 ${blob1}`}></div>
       <div className={`absolute bottom-[-10%] right-[10%] w-[45vw] h-[45vw] rounded-full blur-[120px] animate-blob2 mix-blend-screen transition-colors duration-700 ${blob2}`}></div>
 
-      {/* 🌟 SETTINGS MODAL */}
+      {/* Toast */}
+      <div className={`fixed bottom-6 right-6 z-50 transition-all duration-500 ease-out ${toast.show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 invisible'}`}>
+        <div className={`flex items-start gap-3 px-5 py-4 rounded-2xl shadow-xl backdrop-blur-md ${toast.type === 'success' ? 'bg-[#123499] text-white' : 'bg-red-500 text-white'}`}>
+          <div className="flex-1 pr-4">
+            <h4 className="text-sm font-bold">{toast.type === 'success' ? (lang === 'th' ? 'สำเร็จ' : 'Success') : (lang === 'th' ? 'ข้อผิดพลาด' : 'Error')}</h4>
+            <p className="text-xs font-medium opacity-80 mt-1">{toast.message}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-md p-4 animate-[fadeIn_0.2s_ease-out]">
-          <div className={`w-full max-w-md p-8 rounded-[32px] shadow-2xl relative transition-all duration-300 transform scale-100 ${isDark ? 'bg-[#00072d]/95 border-[#051650] text-white' : 'bg-white/90 border-white text-slate-900'} border backdrop-blur-xl`}>
+          <div className={`w-full max-w-md p-8 rounded-[32px] shadow-2xl relative transition-all duration-300 ${isDark ? 'bg-[#00072d]/95 border-[#051650] text-white' : 'bg-white/90 border-white text-slate-900'} border backdrop-blur-xl`}>
             <button onClick={() => setShowSettings(false)} className="absolute top-6 right-6 text-slate-400 hover:text-red-500 transition-transform hover:rotate-90 duration-300"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             <h2 className="text-2xl font-bold mb-6">{t.settings}</h2>
             
             <div className="flex flex-col items-center mb-8">
               <div 
-                onClick={() => fileInputRef.current.click()} 
+                onClick={() => fileInputRef.current?.click()} 
                 className={`w-24 h-24 rounded-full cursor-pointer relative group overflow-hidden shadow-lg mb-3 flex items-center justify-center border-4 ${isDark ? 'bg-[#051650] border-[#0a2472]' : 'bg-slate-200 border-white'}`}
               >
-                {avatarUrl ? <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : <span className="text-3xl font-bold text-slate-400">{session.user.email?.charAt(0).toUpperCase()}</span>}
+                {avatarUrl ? <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : <span className="text-3xl font-bold text-slate-400">{session.user?.email?.charAt(0).toUpperCase()}</span>}
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   {uploadingAvatar ? <span className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin"></span> : <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
                 </div>
               </div>
               <input type="file" accept="image/*" ref={fileInputRef} onChange={handleAvatarUpload} className="hidden" />
-              <p className="text-sm font-medium">{session.user.email}</p>
+              <p className="text-sm font-medium">{session.user?.email}</p>
             </div>
 
             <div className="space-y-4">
@@ -243,20 +299,20 @@ export default function Webmail() {
       {/* Main Glass Container */}
       <div className={`w-full max-w-[1600px] h-[92vh] ${glassPanel} backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_rgb(0,0,0,0.12)] border flex overflow-hidden p-2 relative z-10 gap-2 transition-all duration-500`}>
         
-        {/* --- 1. DARK SIDEBAR --- */}
+        {/* --- 1. SIDEBAR --- */}
         <div className={`w-16 rounded-[24px] flex flex-col items-center py-6 justify-between shrink-0 shadow-xl relative z-20 h-full transition-colors ${sidebarBg}`}>
           <div className="flex flex-col items-center w-full">
             <div className="text-white font-extrabold tracking-widest text-sm -rotate-90 mt-4 mb-4 opacity-90">TIDALIS</div>
           </div>
           
           <div className="flex flex-col gap-5 items-center w-full">
-            <button onClick={() => setShowSettings(true)} className={`w-10 h-10 rounded-full flex items-center justify-center hover:scale-110 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all overflow-hidden shadow-lg border-2 ${isDark ? 'bg-[#051650] border-[#00072d]' : 'bg-slate-700 border-[#1A1A1A]'}`} title="โปรไฟล์">
+            <button onClick={() => setShowSettings(true)} className={`w-10 h-10 rounded-full flex items-center justify-center hover:scale-110 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all overflow-hidden shadow-lg border-2 ${isDark ? 'bg-[#051650] border-[#00072d]' : 'bg-slate-700 border-[#1A1A1A]'}`} title={t.settings}>
               {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <span className="text-white text-xs font-bold">{session.user?.email?.charAt(0).toUpperCase()}</span>}
             </button>
-            <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 hover:scale-110 transition-all flex justify-center items-center" title="การตั้งค่า">
+            <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 hover:scale-110 transition-all flex justify-center items-center" title={t.settings}>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             </button>
-            <button onClick={handleLogout} className="w-10 h-10 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/10 hover:scale-110 transition-all flex justify-center items-center" title="ออกจากระบบ">
+            <button onClick={handleLogout} className="w-10 h-10 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/10 hover:scale-110 transition-all flex justify-center items-center" title="Logout">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             </button>
           </div>
@@ -299,7 +355,7 @@ export default function Webmail() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-1">
                         <span className={`font-semibold text-[15px] truncate pr-2 transition-colors ${isSelected ? textMain : textMain}`}>
-                          {currentFolder === 'sent' || mail.is_draft ? `${t.to} ${mail.recipient || '...'}` : (mail.sender_name || mail.sender.split('@')[0])}
+                          {currentFolder === 'sent' || mail.is_draft ? `${t.to} ${mail.recipient || '...'}` : (mail.sender_name || (mail.sender || '').split('@')[0])}
                         </span>
                         <span className={`text-[12px] font-medium transition-colors ${isSelected ? (isDark ? 'text-[#e5eaf7]' : 'text-blue-500') : textSub} shrink-0`}>{new Date(mail.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit' })}</span>
                       </div>
@@ -349,8 +405,8 @@ export default function Webmail() {
           ) : selectedEmail ? (
             <div className="h-full flex flex-col animate-[fadeIn_0.4s_ease-out]">
               <div className={`px-8 py-4 border-b flex items-center gap-6 text-sm font-semibold transition-colors ${isDark ? 'bg-[#051650]/40 border-[#123499]/30 text-[#e5eaf7]' : 'bg-white/30 border-slate-200/50 text-slate-600'}`}>
-                <button onClick={() => { setTo(selectedEmail.sender); setSubject(`Re: ${selectedEmail.subject}`); setBody(''); setIsComposing(true); }} className={`flex items-center gap-2 transition-all hover:scale-105 ${isDark ? 'hover:text-white' : 'hover:text-blue-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg> {t.reply}</button>
-                <button onClick={() => { setTo(''); setSubject(`Fwd: ${selectedEmail.subject}`); setBody(`\n\n--- Forwarded ---\n${selectedEmail.body_text}`); setIsComposing(true); }} className={`flex items-center gap-2 transition-all hover:scale-105 ${isDark ? 'hover:text-white' : 'hover:text-blue-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg> {t.forward}</button>
+                <button onClick={() => { setTo(selectedEmail.sender || ''); setSubject(`Re: ${selectedEmail.subject || ''}`); setBody(''); setIsComposing(true); }} className={`flex items-center gap-2 transition-all hover:scale-105 ${isDark ? 'hover:text-white' : 'hover:text-blue-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg> {t.reply}</button>
+                <button onClick={() => { setTo(''); setSubject(`Fwd: ${selectedEmail.subject || ''}`); setBody(`\n\n--- Forwarded ---\n${selectedEmail.body_text || ''}`); setIsComposing(true); }} className={`flex items-center gap-2 transition-all hover:scale-105 ${isDark ? 'hover:text-white' : 'hover:text-blue-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg> {t.forward}</button>
               </div>
               <div className="p-10 overflow-y-auto flex-1 custom-scrollbar">
                 <div className="flex items-start gap-4 mb-10">
@@ -359,14 +415,14 @@ export default function Webmail() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-end mb-1">
-                      <h3 className={`font-bold text-lg ${textMain}`}>{selectedEmail.sender_name || selectedEmail.sender.split('@')[0]}</h3>
+                      <h3 className={`font-bold text-lg ${textMain}`}>{selectedEmail.sender_name || (selectedEmail.sender || '').split('@')[0]}</h3>
                       <span className={`text-sm font-medium ${textSub}`}>{new Date(selectedEmail.created_at).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
-                    <div className={`text-[13px] ${textSub}`}>To: {selectedEmail.recipient}</div>
+                    <div className={`text-[13px] ${textSub}`}>To: {selectedEmail.recipient || ''}</div>
                   </div>
                 </div>
-                <h1 className={`text-[26px] font-bold ${textMain} mb-6`}>{selectedEmail.subject}</h1>
-                <div className={`prose max-w-none leading-relaxed text-[15px] ${isDark ? 'prose-invert text-[#e5eaf7]' : 'text-slate-800'}`} dangerouslySetInnerHTML={{ __html: selectedEmail.body_html || selectedEmail.body_text }} />
+                <h1 className={`text-[26px] font-bold ${textMain} mb-6`}>{selectedEmail.subject || '(ไม่มีหัวเรื่อง)'}</h1>
+                <div className={`prose max-w-none leading-relaxed text-[15px] ${isDark ? 'prose-invert text-[#e5eaf7]' : 'text-slate-800'}`} dangerouslySetInnerHTML={{ __html: selectedEmail.body_html || selectedEmail.body_text || '' }} />
               </div>
             </div>
           ) : (
