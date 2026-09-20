@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// 🌐 พจนานุกรมแปลภาษาแบบง่าย
+// 🌐 พจนานุกรมแปลภาษา
 const DICT = {
   en: {
     inbox: 'Inbox', sent: 'Sent', drafts: 'Drafts', folders: 'Folders',
@@ -64,7 +64,6 @@ export default function Webmail() {
       if (!session) router.push('/login');
       else {
         setSession(session);
-        // ดึงการตั้งค่าจาก Metadata ของผู้ใช้
         const meta = session.user.user_metadata;
         if (meta?.theme) setTheme(meta.theme);
         if (meta?.language) setLang(meta.language);
@@ -106,14 +105,12 @@ export default function Webmail() {
     router.push('/login');
   }
 
-  // ⚙️ ฟังก์ชันเปลี่ยนการตั้งค่า
   const updateSettings = async (newTheme, newLang) => {
     setTheme(newTheme);
     setLang(newLang);
     await supabase.auth.updateUser({ data: { theme: newTheme, language: newLang } });
   };
 
-  // 📸 ฟังก์ชันอัปโหลดรูปโปรไฟล์
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -121,13 +118,10 @@ export default function Webmail() {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${session.user.id}-${Date.now()}.${fileExt}`;
-      
       const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file);
       if (uploadError) throw uploadError;
-
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
       setAvatarUrl(data.publicUrl);
-      
       await supabase.auth.updateUser({ data: { avatar_url: data.publicUrl } });
       showToast(lang === 'th' ? 'อัปเดตรูปสำเร็จ' : 'Avatar updated!', 'success');
     } catch (error) {
@@ -137,9 +131,6 @@ export default function Webmail() {
     }
   };
 
-  const handleReply = () => { /* ... ฟังก์ชันเดิม ... */ };
-  const handleForward = () => { /* ... ฟังก์ชันเดิม ... */ };
-  const handleSaveDraft = async () => { /* ... ฟังก์ชันเดิม ... */ };
   const resetCompose = () => { setTo(''); setSubject(''); setBody(''); setFiles([]); setDraftId(null); setIsComposing(false); };
 
   async function handleSendEmail(e) {
@@ -181,10 +172,9 @@ export default function Webmail() {
   if (loadingAuth) return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="w-12 h-12 border-4 border-slate-600 border-t-white rounded-full animate-spin"></div></div>;
   if (!session) return null;
 
-  const t = DICT[lang]; // ดึงคำแปลตามภาษาที่เลือก
-  const isDark = theme === 'dark'; // เช็คธีม
+  const t = DICT[lang]; 
+  const isDark = theme === 'dark'; 
 
-  // ค่าสี Dynamic ตาม Theme
   const bgApp = isDark ? 'bg-slate-950' : 'bg-[#e0f2fe]';
   const textMain = isDark ? 'text-white' : 'text-slate-900';
   const textSub = isDark ? 'text-slate-400' : 'text-slate-500';
@@ -211,7 +201,7 @@ export default function Webmail() {
                 onClick={() => fileInputRef.current.click()} 
                 className="w-24 h-24 rounded-full bg-slate-200 cursor-pointer relative group overflow-hidden shadow-inner mb-3 flex items-center justify-center"
               >
-                {avatarUrl ? <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" /> : <span className="text-3xl font-bold text-slate-400">{session.user.email.charAt(0).toUpperCase()}</span>}
+                {avatarUrl ? <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" /> : <span className="text-3xl font-bold text-slate-400">{session.user.email?.charAt(0).toUpperCase()}</span>}
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   {uploadingAvatar ? <span className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin"></span> : <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
                 </div>
@@ -229,7 +219,6 @@ export default function Webmail() {
                   <button onClick={() => updateSettings('dark', lang)} className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all ${isDark ? 'bg-slate-900 shadow-sm text-white' : 'text-slate-500'}`}>Dark</button>
                 </div>
               </div>
-              
               <div className={`p-4 rounded-2xl flex justify-between items-center ${isDark ? 'bg-slate-700/50' : 'bg-slate-50'}`}>
                 <span className="font-semibold text-sm">Language</span>
                 <div className="flex bg-slate-200/50 rounded-full p-1 gap-1">
@@ -245,22 +234,25 @@ export default function Webmail() {
       {/* Main Glass Container */}
       <div className={`w-full max-w-[1600px] h-[92vh] ${glassPanel} backdrop-blur-2xl rounded-[32px] shadow-[0_8px_32px_rgb(0,0,0,0.08)] border flex overflow-hidden p-2 relative z-10 gap-2 transition-colors duration-500`}>
         
-        {/* --- 1. DARK SIDEBAR --- */}
-        <div className="w-16 bg-[#1A1A1A] rounded-[24px] flex flex-col items-center py-6 justify-between shrink-0 shadow-lg relative z-20">
-          <div className="flex flex-col items-center gap-6 w-full">
+        {/* --- 1. DARK SIDEBAR (แก้ไขปุ่มลงมาด้านล่าง) --- */}
+        <div className="w-16 bg-[#1A1A1A] rounded-[24px] flex flex-col items-center py-6 justify-between shrink-0 shadow-lg relative z-20 h-full">
+          <div className="flex flex-col items-center w-full">
             <div className="text-white font-extrabold tracking-tighter text-sm -rotate-90 mt-4 mb-4">TIDALIS</div>
-            
-            {/* Profile Avatar Button (เปิด Settings) */}
-            <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center hover:scale-105 transition-transform overflow-hidden shadow-lg border-2 border-[#1A1A1A]">
-              {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <span className="text-white text-xs font-bold">{session.user.email.charAt(0).toUpperCase()}</span>}
-            </button>
           </div>
           
-          <div className="flex flex-col gap-4">
-            <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors flex justify-center items-center">
+          <div className="flex flex-col gap-5 items-center w-full">
+            {/* Profile Avatar Button */}
+            <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center hover:scale-105 transition-transform overflow-hidden shadow-lg border-2 border-[#1A1A1A]" title="โปรไฟล์">
+              {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <span className="text-white text-xs font-bold">{session.user?.email?.charAt(0).toUpperCase()}</span>}
+            </button>
+
+            {/* Settings Button */}
+            <button onClick={() => setShowSettings(true)} className="w-10 h-10 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors flex justify-center items-center" title="การตั้งค่า">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             </button>
-            <button onClick={handleLogout} className="w-10 h-10 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/10 transition-colors flex justify-center items-center">
+
+            {/* Logout Button */}
+            <button onClick={handleLogout} className="w-10 h-10 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/10 transition-colors flex justify-center items-center" title="ออกจากระบบ">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             </button>
           </div>
@@ -269,7 +261,6 @@ export default function Webmail() {
         {/* --- 2. SUB MENU --- */}
         <div className="w-48 flex flex-col pt-6 px-3 shrink-0">
           <h2 className={`text-[22px] font-bold ${textMain} px-3 mb-6`}>Email</h2>
-          
           <div className="flex flex-col gap-1">
             <button onClick={() => setCurrentFolder('inbox')} className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${currentFolder === 'inbox' ? `${isDark ? 'bg-slate-700' : 'bg-white shadow-sm'} font-bold ${textMain}` : `font-medium ${textSub}${hoverClass}`}`}>
               <div className="flex items-center gap-3"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg> {t.inbox}</div>
@@ -293,7 +284,6 @@ export default function Webmail() {
               </button>
             </div>
           </div>
-          
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             {filteredEmails.length === 0 ? (
               <div className="p-8 text-center text-sm text-slate-400">{t.noMsg}</div>
@@ -309,7 +299,7 @@ export default function Webmail() {
                         </span>
                         <span className="text-[12px] font-medium text-slate-400 shrink-0">{new Date(mail.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit' })}</span>
                       </div>
-                      <div className={`text-[14px] font-medium ${textSub} mb-1 truncate`}>{mail.is_draft && <span className="text-red-400 font-bold mr-1">[ร่าง]</span>}{mail.subject || '...'}</div>
+                      <div className={`text-[14px] font-medium ${textSub} mb-1 truncate`}>{mail.is_draft && <span className="text-red-400 font-bold mr-1">[ร่าง] </span>}{mail.subject || '...'}</div>
                     </div>
                   </div>
                 );
@@ -321,7 +311,6 @@ export default function Webmail() {
         {/* --- 4. MAIN VIEW --- */}
         <div className={`flex-1 ${innerPanel} backdrop-blur-xl border border-white/20 rounded-[24px] flex flex-col overflow-hidden relative z-0 transition-colors`}>
           {isComposing ? (
-            // 📝 Compose View
             <div className="h-full flex flex-col">
               <div className="px-8 py-5 border-b border-slate-200/50 flex justify-between items-center">
                 <h2 className={`text-xl font-bold ${textMain}`}>{t.newMsg}</h2>
@@ -338,7 +327,6 @@ export default function Webmail() {
                     <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} className={`flex-1 bg-transparent font-medium focus:outline-none ${textMain}`} />
                   </div>
                   <textarea value={body} onChange={(e) => setBody(e.target.value)} className={`flex-1 w-full bg-transparent p-2 focus:outline-none resize-none mt-4 leading-relaxed ${textMain}`} placeholder="..."></textarea>
-                  
                   <div className="flex justify-between items-center pt-4 border-t border-slate-200/50 mt-auto">
                     <div className="flex gap-2">
                       <div className="relative group">
@@ -347,7 +335,6 @@ export default function Webmail() {
                       </div>
                     </div>
                     <div className="flex gap-3">
-                      <button type="button" onClick={handleSaveDraft} className="bg-slate-200 text-slate-700 px-6 py-2.5 rounded-full text-sm font-semibold">{t.save}</button>
                       <button type="submit" disabled={sending} className="bg-blue-600 text-white px-8 py-2.5 rounded-full text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{t.send}</button>
                     </div>
                   </div>
@@ -355,7 +342,6 @@ export default function Webmail() {
               </div>
             </div>
           ) : selectedEmail ? (
-            // 📖 Read View
             <div className="h-full flex flex-col">
               <div className={`px-8 py-4 border-b border-slate-200/50 flex items-center gap-6 text-sm font-semibold ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-white/30 text-slate-600'}`}>
                 <button onClick={() => { setTo(selectedEmail.sender); setSubject(`Re: ${selectedEmail.subject}`); setBody(''); setIsComposing(true); }} className="flex items-center gap-2 hover:text-blue-500"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg> {t.reply}</button>
